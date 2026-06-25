@@ -137,11 +137,17 @@
     conteudo.innerHTML = '<div class="estado">Link inválido. Use o link exclusivo que o escritório enviou.</div>';
   } else { carregar(); }
 
+  // Lê via JSONP (script tag) para contornar o CORS do Apps Script
   function carregar(){
-    fetch(WEBAPP_URL + '?c=' + encodeURIComponent(TOKEN))
-      .then(function(r){ return r.json(); })
-      .then(function(d){ DADOS = d; render(); })
-      .catch(function(){ conteudo.innerHTML = '<div class="estado">Não foi possível carregar agora. Tente novamente em instantes.</div>'; });
+    var cb = 'cbpainel_' + Date.now();
+    var s = document.createElement('script');
+    var t = setTimeout(falhou, 20000);
+    function limpar(){ clearTimeout(t); try { delete window[cb]; } catch (e) { window[cb] = undefined; } if (s.parentNode) s.parentNode.removeChild(s); }
+    function falhou(){ limpar(); conteudo.innerHTML = '<div class="estado">Não foi possível carregar agora. Atualize a página (puxe para baixo ou F5).</div>'; }
+    window[cb] = function(d){ limpar(); DADOS = d; render(); };
+    s.onerror = falhou;
+    s.src = WEBAPP_URL + '?c=' + encodeURIComponent(TOKEN) + '&callback=' + cb + '&t=' + Date.now();
+    document.body.appendChild(s);
   }
 
   function render(){
@@ -234,22 +240,22 @@
     var payload = { c: TOKEN, linha: linha, recado: txt };
     if (anexos[linha]) payload.arquivo = anexos[linha];
 
+    // POST em modo no-cors (o Apps Script grava; a resposta é opaca, então
+    // tratamos o envio como concluído de forma otimista).
     fetch(WEBAPP_URL, {
       method: 'POST',
+      mode: 'no-cors',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload)
     })
-    .then(function(r){ return r.json(); })
-    .then(function(res){
-      if (res.ok) {
-        var it = DADOS.itens.filter(function(x){ return x.linha === linha; })[0];
-        if (it) { it.resposta = txt; it.respondido = true; it.devStatus = 'analise';
-                  it.devTexto = 'Sua resposta está em análise pelo escritório.'; }
-        render();
-      } else {
-        btn.disabled = false; btn.textContent = 'Cumprir exigência';
-        alert(res.erro || 'Não foi possível enviar.');
+    .then(function(){
+      var it = DADOS.itens.filter(function(x){ return x.linha === linha; })[0];
+      if (it) {
+        it.resposta = txt; it.respondido = true; it.devStatus = 'analise';
+        it.devTexto = 'Sua resposta está em análise pelo escritório.';
+        if (!it.dataRef) it.dataRef = fmt(new Date());
       }
+      render();
     })
     .catch(function(){
       btn.disabled = false; btn.textContent = 'Cumprir exigência';
